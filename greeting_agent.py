@@ -143,7 +143,7 @@ def greeting_agent_function(state: State) -> State:
 
     return state
 
-# Weather Agent Node with Gemini
+# Weather Agent Node
 def weather_agent_function(state: State) -> State:
     message = state.get("message", "").strip().lower()
     if "weather" in message or "temperature" in message or "forecast" in message:
@@ -164,7 +164,6 @@ def weather_agent_function(state: State) -> State:
     else:
         state["weather_response"] = "I can provide weather information if you ask specifically."
     return state
-
 
 # Joke Agent Node with Gemini
 def joke_agent_function(state: State) -> State:
@@ -252,3 +251,4 @@ if __name__ == "__main__":
             break
         response = run_greeting_agent(user_message)
         print(f"Chatbot: {response}")
+
