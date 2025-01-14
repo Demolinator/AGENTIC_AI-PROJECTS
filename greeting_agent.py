@@ -89,7 +89,6 @@ WEATHER_CODE_DESCRIPTIONS = {
 
 def get_weather_for_today(location: str) -> str:
     try:
-        # Get coordinates dynamically
         coordinates = get_coordinates(location)
         if not coordinates:
             return f"Sorry, weather information is not available for {location}."
@@ -97,7 +96,6 @@ def get_weather_for_today(location: str) -> str:
         latitude = coordinates["latitude"]
         longitude = coordinates["longitude"]
 
-        # Open-Meteo API URL
         url = f"https://api.open-meteo.com/v1/forecast?latitude={latitude}&longitude={longitude}&current_weather=true"
         response = requests.get(url, timeout=5)
 
@@ -107,7 +105,6 @@ def get_weather_for_today(location: str) -> str:
             temperature = current_weather.get("temperature")
             weather_code = current_weather.get("weathercode", -1)
 
-            # Map weather code to description
             description = WEATHER_CODE_DESCRIPTIONS.get(weather_code, "Unknown weather condition")
 
             if temperature is not None:
@@ -115,10 +112,8 @@ def get_weather_for_today(location: str) -> str:
             else:
                 return f"Weather details are incomplete for {location}. Please try again later."
         else:
-            print(f"Debug: Open-Meteo returned status code {response.status_code}")
             return f"Could not fetch weather details for {location}."
     except Exception as e:
-        print(f"Debug: Error fetching weather - {e}")
         return "Could not fetch weather details at the moment. Please try again later."
 
 
@@ -130,81 +125,88 @@ class State(TypedDict):
     joke_response: str
     final_response: str
 
-# Greeting Agent Node
+# Greeting Agent Node with Gemini
 def greeting_agent_function(state: State) -> State:
-    greetings = [
-        "hello", "hi", "hey", "good morning", "good afternoon", "good evening",
-        "how are you", "greetings", "salutations", "what's up", "howdy"
-    ]
-    message = state.get("message", "").strip().lower()
+    message = state.get("message", "").strip()
+    prompt = f"The user said: '{message}'. Generate a friendly greeting response."
+    gemini_response = query_gemini(prompt)
 
-    print(f"Debug: Received message = '{message}'")
-
-    greeting_pattern = re.compile(r'(?:' + '|'.join(map(re.escape, greetings)) + r')', re.IGNORECASE)
-
-    if greeting_pattern.search(message):
-        print("Debug: Greeting detected!")
-        state["greeting_response"] = "Hello! How can I assist you today?"
+    if gemini_response:
+        state["greeting_response"] = gemini_response
     else:
-        print("Debug: No greeting detected.")
-        state["greeting_response"] = "I only handle greetings right now."
+        greetings = [
+            "Hello! How can I assist you today?",
+            "Hi there! What can I do for you?",
+            "Hey! Need any help?"
+        ]
+        state["greeting_response"] = random.choice(greetings)
+
     return state
 
-# Weather Agent Node
+# Weather Agent Node with Gemini
 def weather_agent_function(state: State) -> State:
-    weather_keywords = ["weather", "temperature", "forecast"]
     message = state.get("message", "").strip().lower()
-
-    print(f"Debug: Received message in WeatherAgent = '{message}'")
-
-    if any(keyword in message for keyword in weather_keywords):
+    if "weather" in message or "temperature" in message or "forecast" in message:
         location = get_user_location()
-        state["weather_response"] = get_weather_for_today(location)
-        print(f"Debug: Weather response generated: {state['weather_response']}")
+        fallback_weather_response = get_weather_for_today(location)
+
+        prompt = (
+            f"The user asked about the weather in {location}. The current weather is: {fallback_weather_response}.\n"
+            f"Generate a friendly and concise response incorporating this information."
+        )
+
+        gemini_response = query_gemini(prompt)
+
+        # Use Gemini response or fallback data
+        state["weather_response"] = (
+            gemini_response if gemini_response else fallback_weather_response
+        )
     else:
-        state["weather_response"] = "I can only provide weather information for today."
-        print("Debug: No weather-related keywords detected.")
+        state["weather_response"] = "I can provide weather information if you ask specifically."
     return state
 
-# Joke Agent Node
+
+# Joke Agent Node with Gemini
 def joke_agent_function(state: State) -> State:
     joke_keywords = ["joke", "funny", "laugh"]
     message = state.get("message", "").strip().lower()
 
-    print(f"Debug: Received message in JokeAgent = '{message}'")
-
     if any(keyword in message for keyword in joke_keywords):
-        jokes = [
+        fallback_jokes = [
             "Why don't scientists trust atoms? Because they make up everything!",
             "Why did the scarecrow win an award? Because he was outstanding in his field!",
             "What do you call fake spaghetti? An impasta!"
         ]
-        state["joke_response"] = random.choice(jokes)
-        print(f"Debug: Joke response generated: {state['joke_response']}")
+        fallback_joke = random.choice(fallback_jokes)
+
+        prompt = "The user asked for a joke. Provide a lighthearted and funny joke."
+        gemini_response = query_gemini(prompt)
+
+        state["joke_response"] = gemini_response if gemini_response else fallback_joke
     else:
         state["joke_response"] = "I can tell jokes if you ask for one!"
-        print("Debug: No joke-related keywords detected.")
+
     return state
 
 # Front-End Orchestration Node with Gemini Integration
 def front_end_agent_function(state: State) -> State:
-    # Construct a context-aware prompt for Gemini
     prompt = (
         f"User message: '{state['message']}'.\n"
-        f"Greeting response: {state['greeting_response']}.\n"
-        f"Weather response: {state['weather_response']}.\n"
-        f"Joke response: {state['joke_response']}.\n"
-        "Combine these responses into a cohesive and friendly reply."
+        f"Greeting response: '{state['greeting_response']}'.\n"
+        f"Weather response: '{state['weather_response']}'.\n"
+        f"Joke response: '{state['joke_response']}'.\n"
+        "Create a single, friendly, and concise reply that incorporates all these responses. Avoid repetition."
     )
 
     gemini_response = query_gemini(prompt)
     if gemini_response:
-        state["final_response"] = gemini_response
+        state["final_response"] = gemini_response.strip()
     else:
-        # Fallback logic if Gemini fails
-        state["final_response"] = (
-            f"{state['greeting_response']} {state['weather_response']} {state['joke_response']}"
-        )
+        state["final_response"] = " ".join([
+            state["greeting_response"],
+            state["weather_response"],
+            state["joke_response"]
+        ]).strip()
     return state
 
 
@@ -250,4 +252,3 @@ if __name__ == "__main__":
             break
         response = run_greeting_agent(user_message)
         print(f"Chatbot: {response}")
-
